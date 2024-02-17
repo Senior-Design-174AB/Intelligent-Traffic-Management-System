@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import argparse
 from tracker import Tracker
-
+import time
 
 
 # Load YOLO model
@@ -19,7 +19,7 @@ def detect_objects(frame):
     outputs = net.forward(yolo_layers)
     return outputs
 
-def get_boxes(outputs, height, width, person_class_id):
+def get_boxes(outputs, height, width, matched_classes):
     boxes_xywh = []  # For processing
     boxes_x1y1x2y2 = []  # For drawing
     confidences = []
@@ -31,7 +31,7 @@ def get_boxes(outputs, height, width, person_class_id):
             class_id = np.argmax(scores)
             confidence = scores[class_id]
 
-            if class_id == person_class_id:
+            if class_id in matched_classes:
                 center_x = int(detection[0] * width)
                 center_y = int(detection[1] * height)
                 w = int(detection[2] * width)
@@ -48,20 +48,28 @@ def get_boxes(outputs, height, width, person_class_id):
 
 def yolo_counter(labels, video_path, output_path):
     classes = load_labels(labels)
-    person_class_id = classes.index('car')
+    car_class_id = classes.index('car')
+    bus_class_id = classes.index('bus')
+    truck_class_id = classes.index('truck')
+    matched_classes = [car_class_id, bus_class_id, truck_class_id]
     cap = cv2.VideoCapture(video_path)
     tracker = Tracker()
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = None
 
-    while cap.isOpened():
+    frame_limit = 2000
+    frame_interval = 50
+    frame_count = 0
+    start_time = time.time()
+
+    while cap.isOpened() and frame_count < frame_limit:
         ret, frame = cap.read()
         if not ret:
             break
 
         height, width, _ = frame.shape
         outputs = detect_objects(frame)
-        boxes_xywh, boxes_x1y1x2y2, confidences = get_boxes(outputs, height, width, person_class_id)
+        boxes_xywh, boxes_x1y1x2y2, confidences = get_boxes(outputs, height, width, matched_classes)
         indexes = cv2.dnn.NMSBoxes(boxes_xywh, confidences, 0.5, 0.3)
         detections = [boxes_x1y1x2y2[i] for i in indexes]
         centroids = [[int((x+w)/2), int((y+h)/2)] for x, y, w, h in detections]
@@ -69,11 +77,11 @@ def yolo_counter(labels, video_path, output_path):
 
         # Draw bounding boxes
         for (x1, y1, x2, y2) in detections:
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 1)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
 
         for objectID, centroid in tracker.objects.items():
             text = f"ID {objectID}"
-            cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
             cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
 
             # Draw the path
@@ -92,14 +100,22 @@ def yolo_counter(labels, video_path, output_path):
 
         out.write(frame)
 
+        frame_count += 1
+        if frame_count % frame_interval == 0:
+            print(f"Current Frame: {frame_count}, Total Elapsed Time: {time.time() - start_time}")
+
+
     cap.release()
     out.release()
     cv2.destroyAllWindows()
 
+    print("\n------------------------")
+    print(f"Total time: {time.time() - start_time}")
+
 
 
 def main():
-    yolo_counter('./yolo_files/coco.names', 'snapshot1.mp4', 'output.mp4')
+    yolo_counter('./yolo_files/coco.names', 'top_sample.mp4', 'output.mp4')
 
 if __name__ == '__main__':
     main()
