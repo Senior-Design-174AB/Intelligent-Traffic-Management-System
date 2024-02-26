@@ -84,7 +84,7 @@ def yolo_counter(labels, video_path, mask_path, output_path):
 
     intersection_annotation = parse_anno_file(mask_path)
 
-    frame_limit = 2000
+    frame_limit = 4000
     frame_interval = 50
     frame_count = 0
     start_time = time.time()
@@ -92,7 +92,7 @@ def yolo_counter(labels, video_path, mask_path, output_path):
     vehicle_list = {}
     prev_vehicle_list = {}
 
-    while cap.isOpened() and frame_count < frame_limit:
+    while cap.isOpened(): #and frame_count < frame_limit:
         ret, frame = cap.read()
         if not ret:
             break
@@ -123,7 +123,7 @@ def yolo_counter(labels, video_path, mask_path, output_path):
             for lane, lane_mask in intersection_annotation[frame_count].items():
                 lane_polygon = Polygon(lane_mask)
                 if centroid_point.within(lane_polygon):
-                    splitted_lane = lane.split(" ")
+                    splitted_lane = lane.split("_")
                     intersection_number = splitted_lane[0]
                     lane_location = splitted_lane[1]
                     break  # lane annotation should have no overlap
@@ -161,7 +161,7 @@ def yolo_counter(labels, video_path, mask_path, output_path):
                                 isClosed, color, 
                                 thickness)
 
-        prev_vehicle_list = vehicle_list
+        prev_vehicle_list = vehicle_list.copy()
 
         if out is None:
             out = cv2.VideoWriter(output_path, fourcc, 20.0, (width, height))
@@ -183,7 +183,7 @@ def yolo_counter(labels, video_path, mask_path, output_path):
 
 
 def main():
-    yolo_counter('./yolo_files/coco.names', 'front_sample.mp4', "side_annotations.xml", 'output.mp4')
+    yolo_counter('./yolo_files/coco.names', 'front_sample.mp4', "side_full_annotation.xml", 'output.mp4')
 
 if __name__ == '__main__':
     main()
