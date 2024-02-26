@@ -5,6 +5,7 @@ from tracker import Tracker
 import time
 from lxml import etree
 from shapely.geometry import Point, Polygon
+from core_logic import *
 
 class Vehicle:
     def __init__(self, vehicle_type, centroid_location, ID, intersection_number, lane_location, action):
@@ -69,7 +70,7 @@ def get_boxes(outputs, height, width, matched_classes):
                 confidences.append(float(confidence))
                 class_ids.append(class_id)
 
-    return boxes_xywh, boxes_x1y1x2y2, confidences
+    return boxes_xywh, boxes_x1y1x2y2, confidences, class_ids
 
 def yolo_counter(labels, video_path, mask_path, output_path):
     classes = load_labels(labels)
@@ -83,8 +84,8 @@ def yolo_counter(labels, video_path, mask_path, output_path):
     out = None
 
     intersection_annotation = parse_anno_file(mask_path)
-
-    frame_limit = 4000
+    starting_frame = 4000
+    frame_limit = 4500
     frame_interval = 50
     frame_count = 0
     start_time = time.time()
@@ -92,31 +93,43 @@ def yolo_counter(labels, video_path, mask_path, output_path):
     vehicle_list = {}
     prev_vehicle_list = {}
 
-    while cap.isOpened(): #and frame_count < frame_limit:
+    while cap.isOpened() and frame_count < frame_limit:
         ret, frame = cap.read()
+        if frame_count < starting_frame:
+            frame_count += 1
+            continue
         if not ret:
             break
 
         height, width, _ = frame.shape
         outputs = detect_objects(frame)
-        boxes_xywh, boxes_x1y1x2y2, confidences = get_boxes(outputs, height, width, matched_classes)
+        boxes_xywh, boxes_x1y1x2y2, confidences, class_ids = get_boxes(outputs, height, width, matched_classes)
         indexes = cv2.dnn.NMSBoxes(boxes_xywh, confidences, 0.5, 0.3)
         detections = [boxes_x1y1x2y2[i] for i in indexes]
         centroids = [[int((x+w)/2), int((y+h)/2)] for x, y, w, h in detections]
         tracker.update(centroids)
 
         # Draw bounding boxes
-        for (x1, y1, x2, y2) in detections:
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        for i in indexes.flatten():
+            (x1, y1, x2, y2) = boxes_x1y1x2y2[i]
+            class_id = class_ids[i]  # Access class_id using index i
+    
+            if class_id in [car_class_id, truck_class_id]:
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+            elif class_id in [bus_class_id]:  
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255,0), 2)
 
         for objectID, centroid in tracker.objects.items():
             # Define Vehicle class variable
-            vehicle_type = "normal_vehicle"
+            if class_ids[objectID] in [car_class_id,truck_class_id]:
+                vehicle_type = "normal_vehicle"
+            else:
+                vehicle_type = "emergency_vehicle"
             centroid_location = centroid
             id = objectID
             intersection_number = " "
             lane_location = " "
-            action = "continue"
+            action = " "
 
             # Conduct lane location detection
             centroid_point = Point(centroid)
@@ -135,11 +148,25 @@ def yolo_counter(labels, video_path, mask_path, output_path):
             
             vehicle = Vehicle(vehicle_type, centroid_location, id, intersection_number, lane_location, action)
             vehicle_list[id] = vehicle
-            
-            # Draw bounding boxes
-            text = f"ID {objectID}, {intersection_number} {lane_location}"
-            cv2.putText(frame, text, (centroid[0] - 35, centroid[1] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+            # Conduct instruction delivery
+            emergency_vehicles = [v for v in vehicle_list.values() if v.vehicle_type == "emergency_vehicle"]
+            normal_vehicles = [v for v in vehicle_list.values() if v.vehicle_type == "normal_vehicle"]
+            if emergency_vehicles:
+                emergency_vehicle = emergency_vehicles[0]  # Taking the first emergency vehicle found
+                emergency_intersection_number = emergency_vehicle.intersection_number
+                for vehicle in normal_vehicles:
+                    if emergency_vehicle.lane_location == "left":
+                        vehicle.action = instruction_delivery_Emergency_Vehicle_At_left(vehicle, emergency_intersection_number)
+                    elif emergency_vehicle.lane_location == "middle":
+                        vehicle.action = instruction_delivery_Emergency_Vehicle_At_middle(vehicle, emergency_intersection_number)
+                    elif emergency_vehicle.lane_location == "right":
+                        vehicle.action = instruction_delivery_Emergency_Vehicle_At_right(vehicle, emergency_intersection_number)
+            text = f"ID {objectID}, {intersection_number} {lane_location}, {vehicle.action}"
+            cv2.putText(frame, text, (centroid[0] - 35, centroid[1] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
+            
+        
 
         for lane, lane_mask in intersection_annotation[frame_count].items():
             # polygon plotting code from https://www.geeksforgeeks.org/python-opencv-cv2-polylines-method/
@@ -161,7 +188,7 @@ def yolo_counter(labels, video_path, mask_path, output_path):
                                 isClosed, color, 
                                 thickness)
 
-        prev_vehicle_list = vehicle_list.copy()
+        prev_vehicle_list = vehicle_list
 
         if out is None:
             out = cv2.VideoWriter(output_path, fourcc, 20.0, (width, height))
@@ -183,7 +210,7 @@ def yolo_counter(labels, video_path, mask_path, output_path):
 
 
 def main():
-    yolo_counter('./yolo_files/coco.names', 'front_sample.mp4', "side_full_annotation.xml", 'output.mp4')
+    yolo_counter('./yolo_files/coco.names', 'front_sample.mp4', "side_annotations.xml", 'output.mp4')
 
 if __name__ == '__main__':
     main()
