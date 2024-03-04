@@ -130,9 +130,10 @@ def yolo_counter(labels, video_path, mask_path, output_path):
             intersection_number = " "
             lane_location = " "
             action = " "
+            x,y = centroid
 
             # Conduct lane location detection
-            centroid_point = Point(centroid)
+            centroid_point = Point(x,y+10)
             for lane, lane_mask in intersection_annotation[frame_count].items():
                 lane_polygon = Polygon(lane_mask)
                 if centroid_point.within(lane_polygon):
@@ -146,10 +147,17 @@ def yolo_counter(labels, video_path, mask_path, output_path):
                 intersection_number = prev_vehicle_list[objectID].intersection_number
                 lane_location = prev_vehicle_list[objectID].lane_location
             
-            vehicle = Vehicle(vehicle_type, centroid_location, id, intersection_number, lane_location, action)
-            vehicle_list[id] = vehicle
+            vehicle = vehicle_list.get(id)
+            if not vehicle:
+                vehicle = Vehicle(vehicle_type, centroid_location, id, intersection_number, lane_location, action)
+                vehicle_list[id] = vehicle
+            else:
 
-            # Conduct instruction delivery
+                vehicle.centroid_location = centroid_location
+                vehicle.intersection_number = intersection_number
+                vehicle.lane_location = lane_location
+
+
             emergency_vehicles = [v for v in vehicle_list.values() if v.vehicle_type == "emergency_vehicle"]
             normal_vehicles = [v for v in vehicle_list.values() if v.vehicle_type == "normal_vehicle"]
             if emergency_vehicles:
@@ -158,11 +166,11 @@ def yolo_counter(labels, video_path, mask_path, output_path):
                 for vehicle in normal_vehicles:
                     if emergency_vehicle.lane_location == "left":
                         vehicle.action = instruction_delivery_Emergency_Vehicle_At_left(vehicle, emergency_intersection_number)
-                    elif emergency_vehicle.lane_location == "middle":
+                    elif emergency_vehicle.lane_location == "stra":
                         vehicle.action = instruction_delivery_Emergency_Vehicle_At_middle(vehicle, emergency_intersection_number)
                     elif emergency_vehicle.lane_location == "right":
                         vehicle.action = instruction_delivery_Emergency_Vehicle_At_right(vehicle, emergency_intersection_number)
-            text = f"ID {objectID}, {intersection_number} {lane_location}, {vehicle.action}"
+            text = f"ID {objectID}, {vehicle.intersection_number} {vehicle.lane_location}, {vehicle.action}"
             cv2.putText(frame, text, (centroid[0] - 35, centroid[1] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
             
