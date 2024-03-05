@@ -72,6 +72,34 @@ def get_boxes(outputs, height, width, matched_classes):
 
     return boxes_xywh, boxes_x1y1x2y2, confidences, class_ids
 
+def determine_vehicle_action(vehicle, emergency_vehicles):
+    if vehicle.vehicle_type == "emergency_vehicle":
+        return  # Assuming emergency vehicles don't need an action here
+    if not emergency_vehicles:
+        vehicle.action = "continue"  # Default action if no emergency vehicles are present
+        return
+    emergency_vehicle = emergency_vehicles[0]  # Simplification for example
+    if vehicle.lane_location == "left":
+        vehicle.action = instruction_delivery_Emergency_Vehicle_At_left(vehicle, emergency_vehicle.intersection_number)
+    elif vehicle.lane_location == "middle":
+        vehicle.action = instruction_delivery_Emergency_Vehicle_At_middle(vehicle, emergency_vehicle.intersection_number)
+    elif vehicle.lane_location == "right":
+        vehicle.action = instruction_delivery_Emergency_Vehicle_At_right(vehicle, emergency_vehicle.intersection_number)
+
+def determine_lane_location(centroid, intersection_annotation, frame_count):
+    x, y = centroid
+    centroid_point = Point(x, y + 10)  # Adjusted to account for the vehicle's bottom center
+    for lane, lane_mask in intersection_annotation[frame_count].items():
+        lane_polygon = Polygon(lane_mask)
+        if centroid_point.within(lane_polygon):
+            splitted_lane = lane.split("_")
+            intersection_number = splitted_lane[0]
+            lane_location = splitted_lane[1]
+            return intersection_number, lane_location
+    return None, None
+
+
+
 def yolo_counter(labels, video_path, mask_path, output_path):
     classes = load_labels(labels)
     car_class_id = classes.index('car')
