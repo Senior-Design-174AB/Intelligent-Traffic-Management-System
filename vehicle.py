@@ -4,7 +4,5 @@ class Vehicle:
         self.centroid_location = centroid_location  # (x, y) of the vehicle's centroid
         self.ID = ID 
         self.intersection_number = intersection_number  # "1", "2", "3", "4"
-        self.lane_location = lane_location  # "left", "middle", "right"
+        self.lane_location = lane_location  # "left", "straight", "right"
         self.action = action  # "stop", "yield_left", "yield_right", "continue"
-
-    
