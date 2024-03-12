@@ -17,14 +17,14 @@ class Tracker:
         self.maxLost = maxLost
         self.maxDistance = maxDistance
 
-    def register(self, centroid):
+    def register(self, centroid, class_id):
         if self.deregisteredID:
             nextID = heapq.heappop(self.deregisteredID)
         else:
             nextID = self.nextObjectID
             self.nextObjectID += 1
         
-        self.objects[nextID] = centroid
+        self.objects[nextID] = (centroid, class_id)
         self.lost[nextID] = 0
         self.paths[nextID] = [centroid]
 
@@ -34,7 +34,7 @@ class Tracker:
         del self.paths[objectID]
         heapq.heappush(self.deregisteredID, objectID)
 
-    def update(self, inputCentroids):
+    def update(self, inputCentroids, classes):
         if len(inputCentroids) == 0:
             for objectID in list(self.lost.keys()):
                 self.lost[objectID] += 1
@@ -44,10 +44,10 @@ class Tracker:
 
         if len(self.objects) == 0:
             for i in range(0, len(inputCentroids)):
-                self.register(inputCentroids[i])
+                self.register(inputCentroids[i], classes[i])
         else:
             objectIDs = list(self.objects.keys())
-            objectCentroids = list(self.objects.values())
+            objectCentroids = list(cent_pair[0] for cent_pair in self.objects.values())
 
             D = self._distance(np.array(objectCentroids), inputCentroids)
 
@@ -65,7 +65,7 @@ class Tracker:
                     continue
 
                 objectID = objectIDs[row]
-                self.objects[objectID] = inputCentroids[col]
+                self.objects[objectID] = (inputCentroids[col], classes[col])
                 self.lost[objectID] = 0
                 self.paths[objectID].append(inputCentroids[col])
                 
@@ -86,7 +86,7 @@ class Tracker:
                     self.deregister(objectID)
 
             for col in unusedCols:
-                self.register(inputCentroids[col])
+                self.register(inputCentroids[col], classes[col])
 
         return self.objects
 
