@@ -13,7 +13,7 @@ class Vehicle:
         self.centroid_location = centroid_location  # (x, y) of the vehicle's centroid
         self.ID = ID 
         self.intersection_number = intersection_number  # "1", "2", "3", "4"
-        self.lane_location = lane_location  # "left", "middle", "right"
+        self.lane_location = lane_location  # "left", "straight", "right"
         self.action = action  # "stop", "yield_left", "yield_right", "continue"
 
 def parse_anno_file(cvat_xml):
@@ -81,8 +81,8 @@ def determine_vehicle_action(vehicle, emergency_vehicles):
     emergency_vehicle = emergency_vehicles[0]  # Simplification for example
     if vehicle.lane_location == "left":
         vehicle.action = instruction_delivery_Emergency_Vehicle_At_left(vehicle, emergency_vehicle.intersection_number)
-    elif vehicle.lane_location == "middle":
-        vehicle.action = instruction_delivery_Emergency_Vehicle_At_middle(vehicle, emergency_vehicle.intersection_number)
+    elif vehicle.lane_location == "straight":
+        vehicle.action = instruction_delivery_Emergency_Vehicle_At_straight(vehicle, emergency_vehicle.intersection_number)
     elif vehicle.lane_location == "right":
         vehicle.action = instruction_delivery_Emergency_Vehicle_At_right(vehicle, emergency_vehicle.intersection_number)
 
@@ -112,8 +112,8 @@ def yolo_counter(labels, video_path, mask_path, output_path):
     out = None
 
     intersection_annotation = parse_anno_file(mask_path)
-    starting_frame = 4000
-    frame_limit = 4500
+    starting_frame = 0
+    frame_limit = 9000
     frame_interval = 50
     frame_count = 0
     start_time = time.time()
@@ -134,25 +134,30 @@ def yolo_counter(labels, video_path, mask_path, output_path):
         boxes_xywh, boxes_x1y1x2y2, confidences, class_ids = get_boxes(outputs, height, width, matched_classes)
         indexes = cv2.dnn.NMSBoxes(boxes_xywh, confidences, 0.5, 0.3)
         detections = [boxes_x1y1x2y2[i] for i in indexes]
-        centroids = [[int((x+w)/2), int((y+h)/2)] for x, y, w, h in detections]
-        tracker.update(centroids)
+        centroids = [(int((x+w)/2), int((y+h)/2)) for x, y, w, h in detections]
+        classes = [class_ids[i] for i in indexes]
+        tracker.update(centroids, classes)
 
         # Draw bounding boxes
         for i in indexes.flatten():
             (x1, y1, x2, y2) = boxes_x1y1x2y2[i]
             class_id = class_ids[i]  # Access class_id using index i
-    
             if class_id in [car_class_id, truck_class_id]:
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
             elif class_id in [bus_class_id]:  
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255,0), 2)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            
+        
+        emergency_ids = []
 
-        for objectID, centroid in tracker.objects.items():
+        for objectID, (centroid, class_id) in tracker.objects.items():
             # Define Vehicle class variable
-            if class_ids[objectID] in [car_class_id,truck_class_id]:
+            
+            if class_id in [car_class_id,truck_class_id]:
                 vehicle_type = "normal_vehicle"
             else:
                 vehicle_type = "emergency_vehicle"
+                emergency_ids.append(objectID)
             centroid_location = centroid
             id = objectID
             intersection_number = " "
@@ -175,33 +180,31 @@ def yolo_counter(labels, video_path, mask_path, output_path):
                 intersection_number = prev_vehicle_list[objectID].intersection_number
                 lane_location = prev_vehicle_list[objectID].lane_location
             
-            vehicle = vehicle_list.get(id)
-            if not vehicle:
-                vehicle = Vehicle(vehicle_type, centroid_location, id, intersection_number, lane_location, action)
-                vehicle_list[id] = vehicle
-            else:
-
-                vehicle.centroid_location = centroid_location
-                vehicle.intersection_number = intersection_number
-                vehicle.lane_location = lane_location
-
-
-            emergency_vehicles = [v for v in vehicle_list.values() if v.vehicle_type == "emergency_vehicle"]
-            normal_vehicles = [v for v in vehicle_list.values() if v.vehicle_type == "normal_vehicle"]
-            if emergency_vehicles:
-                emergency_vehicle = emergency_vehicles[0]  # Taking the first emergency vehicle found
-                emergency_intersection_number = emergency_vehicle.intersection_number
-                for vehicle in normal_vehicles:
-                    if emergency_vehicle.lane_location == "left":
-                        vehicle.action = instruction_delivery_Emergency_Vehicle_At_left(vehicle, emergency_intersection_number)
-                    elif emergency_vehicle.lane_location == "stra":
-                        vehicle.action = instruction_delivery_Emergency_Vehicle_At_middle(vehicle, emergency_intersection_number)
-                    elif emergency_vehicle.lane_location == "right":
-                        vehicle.action = instruction_delivery_Emergency_Vehicle_At_right(vehicle, emergency_intersection_number)
+            vehicle = Vehicle(vehicle_type, centroid_location, id, intersection_number, lane_location, action)
+            vehicle_list[id] = vehicle
+        
+        if emergency_ids:
+            emergency_vehicle = vehicle_list[emergency_ids[0]]  # Taking the first emergency vehicle found
+            emergency_intersection_number = emergency_vehicle.intersection_number
+            for id in vehicle_list:
+                if id in emergency_ids:
+                    continue
+                if emergency_vehicle.lane_location == "left":
+                    instruction_delivery_Emergency_Vehicle_At_left(vehicle_list[id], emergency_intersection_number)
+                elif emergency_vehicle.lane_location == "straight":
+                    instruction_delivery_Emergency_Vehicle_At_straight(vehicle_list[id], emergency_intersection_number)
+                elif emergency_vehicle.lane_location == "right":
+                    instruction_delivery_Emergency_Vehicle_At_right(vehicle_list[id], emergency_intersection_number)
+            
+        else:
+            for id in vehicle_list:
+                vehicle_list[id].action = "continue"
+        
+        for vehicle in vehicle_list.values():
+            centroid = vehicle.centroid_location
             text = f"ID {objectID}, {vehicle.intersection_number} {vehicle.lane_location}, {vehicle.action}"
             cv2.putText(frame, text, (centroid[0] - 35, centroid[1] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-            cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
-            
+            cv2.circle(frame, (centroid[0], centroid[1]+10), 4, (0, 255, 0), -1)
         
 
         for lane, lane_mask in intersection_annotation[frame_count].items():
@@ -227,7 +230,8 @@ def yolo_counter(labels, video_path, mask_path, output_path):
         prev_vehicle_list = vehicle_list
 
         if out is None:
-            out = cv2.VideoWriter(output_path, fourcc, 20.0, (width, height))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
         out.write(frame)
 
@@ -246,7 +250,7 @@ def yolo_counter(labels, video_path, mask_path, output_path):
 
 
 def main():
-    yolo_counter('./yolo_files/coco.names', 'front_sample.mp4', "side_annotations.xml", 'output.mp4')
+    yolo_counter('./yolo_files/coco.names', 'front_sample.mp4', "side_full_annotation.xml", 'side_full.mp4')
 
 if __name__ == '__main__':
     main()
